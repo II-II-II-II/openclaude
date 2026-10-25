@@ -71,6 +71,7 @@ type RequestBodyPlannerContext = {
   request: {
     resolvedModel: string
     reasoning?: { effort?: string }
+    thinking?: { type: 'enabled' | 'disabled' }
   }
   params: ShimRequestParams
   effectiveTransport: RequestTransport
@@ -424,24 +425,15 @@ export function createRequestBodyPlanner(context: RequestBodyPlannerContext) {
       options.temperature = params.temperature
     if (params.top_p !== undefined) options.top_p = params.top_p
 
-    // Ollama's hybrid-thinking models (e.g. Qwen3.x) default to thinking
-    // ENABLED when the `think` field is simply absent from the request —
-    // this was previously never set here, so every Ollama request silently
-    // ran in thinking mode regardless of --effort, burning a full reasoning
-    // trace even for trivial prompts with no way to disable it. Mirrors the
-    // effort handling already done above for the Anthropic/Gemini paths.
-    const think: boolean | string = request.reasoning?.effort
-      ? ['xhigh', 'max', 'ultracode'].includes(request.reasoning.effort)
-        ? 'high'
-        : request.reasoning.effort
-      : false
-
     return {
       model: request.resolvedModel,
       messages: normalizeOllamaNativeMessages(body.messages),
       stream: params.stream ?? false,
       options,
-      think,
+      // Only an explicit model option overrides Ollama's model-specific default.
+      ...(request.thinking
+        ? { think: request.thinking.type === 'enabled' }
+        : {}),
       ...(body.tools ? { tools: body.tools } : {}),
     }
   }

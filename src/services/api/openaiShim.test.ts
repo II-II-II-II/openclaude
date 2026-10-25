@@ -5042,17 +5042,26 @@ test('disarms the API timeout after headers arrive while the body keeps streamin
 // Native Ollama endpoint selection remains an adapter/facade integration concern.
 // Keep this marker stable for independent adjacent test migrations.
 // openaiShim test extraction seam 129 start: uses native Ollama chat endpoint when local base URL omits /v1
-test('uses native Ollama chat endpoint when local base URL omits /v1', async () => {
-  process.env.OPENAI_BASE_URL = 'http://localhost:11434'
+test.each([
+  ['', '', undefined],
+  ['/v1', '?thinking=enabled', true],
+  ['', '?thinking=disabled', false],
+  ['/v1', '?reasoning=high', undefined],
+  ['', '?thinking=enabled&reasoning=low', true],
+  ['/v1', '?thinking=disabled&reasoning=high', false],
+] as const)('native Ollama preserves defaults and explicit thinking (%s, %s)', async (basePath, modelOptions, think) => {
+  process.env.OPENAI_BASE_URL = `http://localhost:11434${basePath}`
 
   const requestUrls: string[] = []
-  globalThis.fetch = (async (input, _init) => {
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (input, init) => {
+    requestBody = JSON.parse(String(init?.body))
     const url = typeof input === 'string' ? input : input.url
     requestUrls.push(url)
 
     return new Response(
       JSON.stringify({
-        model: 'qwen2.5-coder:7b',
+        model: 'qwen3:8b',
         message: {
           role: 'assistant',
           content: 'hello from native Ollama',
@@ -5075,7 +5084,7 @@ test('uses native Ollama chat endpoint when local base URL omits /v1', async () 
 
   await expect(
     client.beta.messages.create({
-      model: 'qwen2.5-coder:7b',
+      model: `qwen3:8b${modelOptions}`,
       messages: [{ role: 'user', content: 'hello' }],
       max_tokens: 64,
       stream: false,
@@ -5083,6 +5092,12 @@ test('uses native Ollama chat endpoint when local base URL omits /v1', async () 
   ).resolves.toBeDefined()
 
   expect(requestUrls).toEqual(['http://localhost:11434/api/chat'])
+  expect(requestBody?.model).toBe('qwen3:8b')
+  if (think === undefined) {
+    expect(requestBody).not.toHaveProperty('think')
+  } else {
+    expect(requestBody).toHaveProperty('think', think)
+  }
 })
 // openaiShim test extraction seam 132 end
 
